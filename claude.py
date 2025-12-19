@@ -1,123 +1,117 @@
-# claude_interface.py
-from typing import List, Any, Optional
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
 
 from anthropic import Anthropic
 
 
 class ClaudeInterface:
     """
-    Simple wrapper around Anthropic's Messages API, with an interface
-    similar to your ChatGPTInterface / GeminiInterface / DeepSeekInterface.
+    Minimal wrapper around Anthropic's Messages API.
 
-    - Maintains its own conversation history.
-    - Exposes a `reset()` method to clear history.
-    - `ask()` takes a list of prompt elements, joins them into one string,
-      and (optionally) enables Claude's managed web search tool.
+    Supports:
+      - Maintaining a conversation history (system/user/assistant)
+      - Passing a list of prompt elements (joined into a single user message)
+      - Optional managed web search tool usage (when supported by the selected model/account)
     """
 
     def __init__(
         self,
         api_key: str,
-        model_name: str = "claude-sonnet-4-5",  # Claude 4.5 Sonnet (see official docs)
+        model_name: str = "claude-sonnet-4-5",
         temperature: float = 0.0,
         max_tokens: int = 4096,
         system_prompt: Optional[str] = None,
-    ):
-        # Anthropic Python client
+        enable_web_search_tool: bool = True,
+        web_search_tool_type: str = "web_search_20250305",
+    ) -> None:
+        """
+        Args:
+            api_key: Anthropic API key.
+            model_name: Claude model identifier.
+            temperature: Sampling temperature for generation.
+            max_tokens: Maximum tokens to generate for a single response.
+            system_prompt: Optional system prompt applied at the start of a session.
+            enable_web_search_tool: If True, configures a managed web search tool descriptor.
+            web_search_tool_type: Tool type string for the managed web search tool (versioned by Anthropic).
+        """
         self._client = Anthropic(api_key=api_key)
         self._model_name = model_name
+        self._temperature = float(temperature)
+        self._max_tokens = int(max_tokens)
 
-        # Basic generation config
-        self._temperature = temperature
-        self._max_tokens = max_tokens
-
-        # Optional system message
         self._system_prompt = system_prompt
-
-        # Internal conversation history, Anthropic-style messages
-        # Each item: {"role": "system" | "user" | "assistant", "content": str}
-        self._messages: List[dict] = []
+        self._messages: List[Dict[str, str]] = []
         if system_prompt:
             self._messages.append({"role": "system", "content": system_prompt})
 
-        # Pre-defined web search tool config (managed by Anthropic)
-        # See: Web search tool docs in Claude 4.5
-        self._web_search_tool = {
-            "name": "web_search",
-            "type": "web_search_20250305",
-        }
+        self._web_search_tool: Optional[Dict[str, str]] = None
+        if enable_web_search_tool:
+            self._web_search_tool = {"name": "web_search", "type": web_search_tool_type}
 
-    def reset(self):
-        """
-        Clear conversation history.
-        This is equivalent to starting a completely new chat session.
-        """
+    def reset(self) -> None:
+        """Clear conversation history and re-apply the system prompt (if provided)."""
         self._messages = []
         if self._system_prompt:
             self._messages.append({"role": "system", "content": self._system_prompt})
 
-    def _build_user_text(self, prompt_elements: List[Any]) -> str:
+    @staticmethod
+    def _normalize_user_text(prompt_elements: List[Any]) -> str:
         """
-        Convert a list of prompt elements into a single string.
-        Mirrors the pattern you already use in other interfaces.
+        Convert a list of prompt elements into a single user message string.
+
+        If a single structured object (dict/list) is provided, it is stringified.
+        Otherwise, elements are stringified and concatenated with spaces.
         """
         if len(prompt_elements) == 1 and isinstance(prompt_elements[0], (dict, list)):
             return str(prompt_elements[0])
-        parts = [str(p) for p in prompt_elements]
-        return " ".join(parts)
+        return " ".join(str(p) for p in prompt_elements)
 
-    def ask(
-        self,
-        prompt_elements: List[Any],
-        use_web_search: bool = True,
-    ) -> str:
+    @staticmethod
+    def _extract_text(resp: Any) -> str:
         """
-        Send a user message and get Claude's reply as plain text.
+        Extract concatenated text blocks from an Anthropic Messages API response.
 
-        - `prompt_elements`: similar to your other interfaces; they will be joined.
-        - `use_web_search`: when True, enables Anthropic's managed Web Search tool.
-          Claude will decide when to actually call it; you do not need to
-          implement any external HTTP calls yourself.
+        Returns:
+            Concatenated text if present, otherwise an empty string.
         """
-        user_text = self._build_user_text(prompt_elements)
-
-        # Append user message to internal history
-        self._messages.append({"role": "user", "content": user_text})
-
-        # Build base arguments for Messages API
-        kwargs = dict(
-            model=self._model_name,
-            max_tokens=self._max_tokens,
-            temperature=self._temperature,
-            messages=self._messages,
-        )
-
-        # Enable Anthropic's managed Web Search tool if requested
-        if use_web_search:
-            kwargs["tools"] = [self._web_search_tool]
-            # Let Claude automatically decide when to invoke the tool
-            kwargs["tool_choice"] = {"type": "auto"}
-
-        # Call Anthropic Messages API
-        resp = self._client.messages.create(**kwargs)
-
-        # Collect all text blocks from the response content
         text_chunks: List[str] = []
-        for block in resp.content:
-            # For plain conversation, we only care about text blocks
+        content = getattr(resp, "content", None) or []
+        for block in content:
             if getattr(block, "type", None) == "text":
-                # `block.text` holds the actual text
                 text_val = getattr(block, "text", None)
                 if text_val:
                     text_chunks.append(text_val)
+        return "".join(text_chunks)
 
-        reply_text = "".join(text_chunks) if text_chunks else ""
+    def ask(self, prompt_elements: List[Any], use_web_search: bool = True) -> str:
+        """
+        Send a user message and return Claude's reply as plain text.
 
-        # Append assistant reply to history
-        # (we only store the concatenated text, not the full structured blocks)
+        Args:
+            prompt_elements: A list of prompt parts that will be joined into one user message.
+            use_web_search: If True, request Anthropic's managed web search tool (when configured).
+
+        Returns:
+            Claude's reply text. If no text is returned, a short error message is provided.
+        """
+        user_text = self._normalize_user_text(prompt_elements)
+        self._messages.append({"role": "user", "content": user_text})
+
+        kwargs: Dict[str, Any] = {
+            "model": self._model_name,
+            "max_tokens": self._max_tokens,
+            "temperature": self._temperature,
+            "messages": self._messages,
+        }
+
+        if use_web_search and self._web_search_tool is not None:
+            kwargs["tools"] = [self._web_search_tool]
+            kwargs["tool_choice"] = {"type": "auto"}
+
+        resp = self._client.messages.create(**kwargs)
+        reply_text = self._extract_text(resp)
+
         self._messages.append({"role": "assistant", "content": reply_text})
 
-        # Fallback in case something unexpected happens
-        if not reply_text:
-            return "[Claude error: no text in response]"
-        return reply_text
+        return reply_text if reply_text else "[Claude error: empty response]"

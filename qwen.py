@@ -1,76 +1,102 @@
-from typing import List, Any, Optional
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
 from openai import OpenAI
 
 
 class QwenInterface:
+    """
+    Thin client wrapper for Alibaba Qwen's OpenAI-compatible Chat Completions endpoint
+    (DashScope compatible-mode).
+
+    Features:
+      - Uses the OpenAI Python SDK against the DashScope-compatible base URL
+      - Maintains a local conversation history (system/user/assistant)
+      - Exposes a reset() method to clear session state
+
+    Notes:
+      - Web search tooling is not supported in this interface; the flag is accepted for API parity.
+      - Some Qwen endpoints accept extra parameters such as "enable_thinking".
+    """
+
     def __init__(
         self,
         api_key: str,
         model_name: str = "qwen3-max-preview",
         temperature: float = 0.0,
-        max_tokens: int = 12000,
+        max_tokens: int = 12_000,
         system_prompt: Optional[str] = None,
-    ):
-        # DeepSeek: use their base_url
-        self._client = OpenAI(
-            api_key=api_key,
-            base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        )
+        base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        enable_thinking: bool = True,
+    ) -> None:
+        """
+        Args:
+            api_key: DashScope/Qwen API key.
+            model_name: Qwen model identifier.
+            temperature: Sampling temperature for generation.
+            max_tokens: Maximum tokens to generate for a single completion.
+            system_prompt: Optional system prompt inserted at session start.
+            base_url: DashScope compatible-mode base URL.
+            enable_thinking: If True, requests the model to enable internal reasoning mode when supported.
+        """
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
         self._model_name = model_name
-        # DeepSeek uses `max_tokens` on chat.completions
-        self._generation_config = {
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
+        self._temperature = float(temperature)
+        self._max_tokens = int(max_tokens)
+        self._enable_thinking = bool(enable_thinking)
 
-        # store conversation history ourselves (chat.completions doesn't have previous_response_id)
         self._system_prompt = system_prompt
-        self._messages: List[dict] = []
+        self._messages: List[Dict[str, str]] = []
         if system_prompt:
             self._messages.append({"role": "system", "content": system_prompt})
 
-    def reset(self):
-        """Clear conversation history."""
+    def reset(self) -> None:
+        """Clear conversation history and re-apply the system prompt (if provided)."""
         self._messages = []
         if self._system_prompt:
             self._messages.append({"role": "system", "content": self._system_prompt})
 
-    def _build_user_text(self, prompt_elements: List[Any]) -> str:
+    @staticmethod
+    def _normalize_user_text(prompt_elements: List[Any]) -> str:
+        """
+        Convert a list of prompt elements into a single user message string.
+
+        If a single structured object (dict/list) is provided, it is stringified.
+        Otherwise, elements are stringified and concatenated with spaces.
+        """
         if len(prompt_elements) == 1 and isinstance(prompt_elements[0], (dict, list)):
-            # if you actually wanted structured messages here, you can handle that,
-            # but for now we just stringify like your original code
             return str(prompt_elements[0])
-        text_parts = [str(p) for p in prompt_elements]
-        return " ".join(text_parts)
+        return " ".join(str(p) for p in prompt_elements)
 
-    def ask(self,
-            prompt_elements: List[Any],
-            use_web_search: bool = True) -> str:
-        # DeepSeek doesn't support OpenAI's `web_search_preview` tool,
-        # so we just ignore `use_web_search`.
-        user_text = self._build_user_text(prompt_elements)
+    def ask(self, prompt_elements: List[Any], use_web_search: bool = True) -> str:
+        """
+        Send a user message and return the assistant reply text.
 
-        # append user message to history
+        Args:
+            prompt_elements: Prompt parts to be joined into a single message.
+            use_web_search: Accepted for interface compatibility, ignored (not supported here).
+
+        Returns:
+            The assistant's message content as a string.
+        """
+        user_text = self._normalize_user_text(prompt_elements)
         self._messages.append({"role": "user", "content": user_text})
 
-        # DeepSeek reasoning model:
-        #   - expects max_tokens
-        #   - ignores temperature/top_p/etc for deepseek-reasoner (per docs)
+        extra_body: Optional[Dict[str, Any]] = None
+        if self._enable_thinking:
+            extra_body = {"enable_thinking": True}
+
         response = self._client.chat.completions.create(
             model=self._model_name,
             messages=self._messages,
-            max_tokens=self._generation_config["max_tokens"],
-            extra_body={"enable_thinking": True},
-            # temperature is accepted but ignored by deepseek-reasoner; safe to pass or omit
+            max_tokens=self._max_tokens,
+            temperature=self._temperature,
+            extra_body=extra_body,
         )
 
         msg = response.choices[0].message
-
-        # For deepseek-reasoner, you *also* get msg.reasoning_content if you want CoT
-        # reasoning_content = getattr(msg, "reasoning_content", None)
         content = msg.content or ""
 
-        # append assistant reply to history
         self._messages.append({"role": "assistant", "content": content})
-
         return content

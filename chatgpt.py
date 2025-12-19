@@ -8,7 +8,7 @@ class ChatGPTInterface:
         api_key: str,
         model_name: str = "gpt-5.1",
         temperature: float = 0.0,
-        max_tokens: int = 100000
+        max_tokens: int = 2048
     ):
         self._client = OpenAI(api_key=api_key)
         self._model_name = model_name
