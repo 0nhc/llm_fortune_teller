@@ -18,18 +18,6 @@ Given a birth datetime and gender, the program computes structured BaZi signals 
 
 ---
 
-## 🚀 Quick Start
-
-```bash
-python ./main.py \
-  --name test \
-  --year 1900 --month 1 --day 1 \
-  --hour 12 --minute 00 \
-  --gender male
-```
-
----
-
 ## 📦 Installation
 
 It’s recommended to use a virtual environment (`venv`, `conda`, `mamba`, etc.). Recommended: **Python 3.10+**.
@@ -50,6 +38,18 @@ Export keys in each new terminal, or add them to your `~/.bashrc`, `~/.zshrc`, e
 export GEMINI_API_KEY="<your-gemini-api-key>"      # https://ai.google.dev/gemini-api/docs/api-key
 export CHATGPT_API_KEY="<your-openai-api-key>"     # https://platform.openai.com/
 export DEEPSEEK_API_KEY="<your-deepseek-api-key>"  # https://api-docs.deepseek.com/
+```
+
+---
+
+## 🚀 Quick Start
+
+```bash
+python ./main.py \
+  --name test \
+  --year 1900 --month 1 --day 1 \
+  --hour 12 --minute 00 \
+  --gender male
 ```
 
 ---
