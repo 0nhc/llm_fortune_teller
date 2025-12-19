@@ -69,11 +69,11 @@ def get_output_paths(profile_name: Optional[str]) -> tuple[str, str, str]:
     """
     if profile_name:
         output_dir = os.path.join("logs", profile_name)
-        log_filename = os.path.join(output_dir, f"dialog_log_{profile_name}.txt")
+        log_filename = os.path.join(output_dir, f"dialog_log_{profile_name}.md")
         final_answers_filename = os.path.join(output_dir, f"final_answers_{profile_name}.md")
     else:
         output_dir = os.path.join("logs", "default")
-        log_filename = os.path.join(output_dir, "dialog_log.txt")
+        log_filename = os.path.join(output_dir, "dialog_log.md")
         final_answers_filename = os.path.join(output_dir, "final_answers.md")
 
     return output_dir, log_filename, final_answers_filename
