@@ -25,7 +25,7 @@ class QwenInterface:
         api_key: str,
         model_name: str = "qwen3-max-preview",
         temperature: float = 0.0,
-        max_tokens: int = 12_000,
+        max_tokens: int = 2048,
         system_prompt: Optional[str] = None,
         base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         enable_thinking: bool = True,
