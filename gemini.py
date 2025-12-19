@@ -37,7 +37,7 @@ class GeminiInterface:
         self._client = genai.Client(api_key=api_key)
         self._model_name = model_name
         self._temperature = float(temperature)
-        self._max_tokens = int(max_tokens)
+        self.max_tokens = int(max_tokens)
 
         self._search_tool: Optional[types.Tool] = None
         if enable_search_tool:
@@ -61,7 +61,7 @@ class GeminiInterface:
         """
         cfg_kwargs = {
             "temperature": self._temperature,
-            "max_tokens": self._max_tokens,
+            "max_output_tokens": self.max_tokens,
         }
         if use_web_search and self._search_tool is not None:
             cfg_kwargs["tools"] = [self._search_tool]
