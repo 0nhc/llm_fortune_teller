@@ -300,7 +300,7 @@ class BaZiAutomation:
         solar = Solar.fromYmdHms(year, month, day, hour, minute, 0)
         lunar = solar.getLunar()
         bazi = lunar.getEightChar()
-        gender_code = 1 if gender_str == "男" else 0
+        gender_code = 1 if gender_str == "male" else 0
         bazi.setSect(1)
 
         year_gan, year_zhi = bazi.getYearGan(), bazi.getYearZhi()
@@ -373,9 +373,3 @@ class BaZiAutomation:
 流年五行: 天干{runtime["liu_nian_gan"]}[{runtime["liu_nian_gan_wuxing"]}] / 地支{runtime["liu_nian_zhi"]}[{runtime["liu_nian_zhi_wuxing"]}]
         """
         return prompt
-
-if __name__ == "__main__":
-    automator = BaZiAutomation()
-    # 使用你的测试用例
-    p = automator.generate_prompt(2001, 9, 17, 15, 30, "男")
-    print(p)

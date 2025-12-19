@@ -47,7 +47,7 @@ def main():
     parser.add_argument("--day", type=int, required=True, help="Day of birth")
     parser.add_argument("--hour", type=int, required=True, help="Hour of birth")
     parser.add_argument("--minute", type=int, required=True, help="Minute of birth")
-    parser.add_argument("--gender", type=str, required=True, help="Gender (e.g., '男' or '女')")
+    parser.add_argument("--gender", type=str, required=True, help="Gender (e.g., 'male' or 'female')")
     args = parser.parse_args()
 
     generate_bazi_analysis(args.year, args.month, args.day, args.hour, args.minute, args.gender, args.name)
