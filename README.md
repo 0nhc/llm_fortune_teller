@@ -13,7 +13,10 @@ Given a birth datetime and gender, the program computes structured BaZi signals 
 ---
 
 ## ✨ Features
-* ✅ Multi-LLM support (Gemini / OpenAI / DeepSeek) via API keys
+* ✅ Multi-LLM support (DeepSeek / Qwen / Kimi) via API keys
+* ✅ Automatic retry mechanism with configurable max retries for robust API calls
+* ✅ Web search capability (Kimi model supports internet search during debates)
+* ✅ Multi-agent debate loop that converges to consensus
 * ✅ CLI-first workflow, easy to automate
 
 ---
@@ -84,6 +87,42 @@ python ./main.py --name John --year 1900 --month 1 --day 1 --hour 15 --minute 0 
 python ./main.py --name Alice --year 1998 --month 8 --day 2 --hour 00 --minute 45 --gender female
 ```
 
+### Advanced Usage
+
+The debate loop (`close_loop.py`) supports additional options:
+
+| Flag          | Type | Default | Description                                    |
+| ------------- | ---- | ------- | ---------------------------------------------- |
+| `--max_loops` | int  | `10`    | Maximum debate rounds after the initial round |
+| `--max_retries` | int | `3`     | Maximum retry attempts for each API call      |
+| `--lang`      | str  | `zh`    | Final output language (`zh` or `en`)           |
+| `--prefix`    | str  | `None`  | Prompt prefix for custom prompts               |
+
+**Example with custom options:**
+
+```bash
+python ./close_loop.py --prefix custom --lang en --max_loops 15 --max_retries 5
+```
+
+### How It Works
+
+1. **Initial Round**: All models independently answer the original prompt in parallel
+2. **Debate Loops**: Models see each other's responses and debate until consensus is reached
+   - Each model evaluates whether it agrees with others' conclusions
+   - Models can challenge, reconcile, or update their stance
+   - Loop continues until all successful models return `agree=True` or `max_loops` is reached
+3. **Final Answers**: Each model produces a polished, standalone final answer
+4. **Output**: Results are saved to `logs/<prefix>/` directory:
+   - `dialog_log_<prefix>.md`: Full debate transcript
+   - `final_answers_<prefix>.md`: Final answers from each model
+
+### Retry Mechanism
+
+The system includes automatic retry logic for API calls:
+- Each API call will retry up to `max_retries` times (default: 3) on failure
+- Retries help handle transient network issues, rate limits, etc.
+- Models that fail after all retries are marked as temporarily down but can retry in the next round
+
 ---
 
 ## 📄 License
@@ -114,4 +153,4 @@ SOFTWARE.
 ## 🙏 Acknowledgements
 
 * `lunar_python` for calendar + BaZi computations
-* LLM providers: Google Gemini, OpenAI, DeepSeek
+* LLM providers: DeepSeek, Alibaba Qwen, Moonshot Kimi
