@@ -27,7 +27,7 @@ class QwenInterface:
         temperature: float = 0.0,
         max_tokens: int = 2048,
         system_prompt: Optional[str] = None,
-        base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
         enable_thinking: bool = True,
     ) -> None:
         """

@@ -7,19 +7,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from gemini import GeminiInterface
-from chatgpt import ChatGPTInterface
 from deepseek import DeepSeekInterface
-# from claude import ClaudeInterface
-# from qwen import QwenInterface
+from qwen import QwenInterface
+from kimi import KimiInterface
 
 
 # =============================================================================
 # Environment variables
 # =============================================================================
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-CHATGPT_API_KEY = os.getenv("CHATGPT_API_KEY")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+QWEN_API_KEY = os.getenv("QWEN_API_KEY")
+KIMI_API_KEY = os.getenv("KIMI_API_KEY")
 
 
 # =============================================================================
@@ -34,26 +32,23 @@ def _require_env(name: str, value: Optional[str]) -> str:
     return value
 
 
-gemini = GeminiInterface(
-    api_key=_require_env("GEMINI_API_KEY", GEMINI_API_KEY),
-    model_name="gemini-3-pro-preview",
-    max_tokens=9600,
-)
-
-chatgpt = ChatGPTInterface(
-    api_key=_require_env("CHATGPT_API_KEY", CHATGPT_API_KEY),
-    model_name="gpt-5.2",
-    max_tokens=9600,
-)
-
 deepseek = DeepSeekInterface(
     api_key=_require_env("DEEPSEEK_API_KEY", DEEPSEEK_API_KEY),
     model_name="deepseek-reasoner",
     max_tokens=9600,
 )
 
-# claude = ClaudeInterface(...)
-# qwen = QwenInterface(...)
+qwen = QwenInterface(
+    api_key=_require_env("QWEN_API_KEY", QWEN_API_KEY),
+    model_name="qwen3-max-preview",
+    max_tokens=9600,
+)
+
+kimi = KimiInterface(
+    api_key=_require_env("KIMI_API_KEY", KIMI_API_KEY),
+    model_name="kimi-k2-turbo-preview",
+    max_tokens=9600,
+)
 
 
 # =============================================================================
@@ -186,6 +181,7 @@ def close_loop_ask(
     log_filename: str = "logs/default/dialog_log.md",
     final_answers_filename: str = "logs/default/final_answers.md",
     output_lang: str = "zh",
+    max_retries: int = 3,
 ) -> Tuple[str, str, str, str, str, str]:
     """
     Run a multi-model debate loop until consensus is reached (or max_loops is hit).
@@ -199,11 +195,46 @@ def close_loop_ask(
         log_filename: Where to write the full dialogue log (Markdown).
         final_answers_filename: Where to write final long answers (Markdown).
         output_lang: Final output language ("zh" or "en"). Debate prompts are always English.
+        max_retries: Maximum number of retry attempts for each API call.
 
     Returns:
-        (gemini_final, chatgpt_final, deepseek_final,
-         last_gemini_struct, last_chatgpt_struct, last_deepseek_struct)
+        (deepseek_final, qwen_final, kimi_final, last_deepseek_struct, last_qwen_struct, last_kimi_struct)
     """
+
+    def call_with_retry(
+        model: ModelState,
+        prompt_data: List[str],
+        use_web: bool,
+        context: str = "call",
+    ) -> Optional[str]:
+        """
+        Call a model's ask method with retry logic.
+
+        Args:
+            model: The model state dictionary.
+            prompt_data: The prompt to send to the model.
+            use_web: Whether to enable web search.
+            context: Context string for logging (e.g., "initial" or "loop 1").
+
+        Returns:
+            The model's response string, or None if all retries failed.
+        """
+        retry_count = 0
+        while True:
+            try:
+                if use_web:
+                    result = model["interface"].ask(prompt_data, True)
+                else:
+                    result = model["interface"].ask(prompt_data)
+                return result
+            except Exception as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    error_msg = f"[{model['name']} {context} failed after {max_retries} retries: {repr(e)}]"
+                    print(f"❌ {error_msg}")
+                    return None
+                print(f"⚠️  {model['name']} {context} failed (attempt {retry_count}/{max_retries}), retrying...")
+                # Continue to retry
 
     def get_model(models: List[ModelState], mid: str) -> Optional[ModelState]:
         for m in models:
@@ -234,7 +265,7 @@ def close_loop_ask(
         else:
             others_block = "(Only you returned a valid answer in the previous round.)\n"
 
-        if mid in ("gemini", "chatgpt", "claude"):
+        if mid in ("kimi",):
             header = (
                 "You are participating in a multi-model debate on the same user question.\n"
                 "You have access to web search tools in this environment.\n"
@@ -337,26 +368,6 @@ def close_loop_ask(
 
     models: List[ModelState] = [
         {
-            "id": "gemini",
-            "name": "Google Gemini",
-            "interface": gemini,
-            "supports_web": True,
-            "temporarily_down": False,
-            "last_answer": "",
-            "last_struct": "",
-            "last_agree": False,
-        },
-        {
-            "id": "chatgpt",
-            "name": "OpenAI ChatGPT",
-            "interface": chatgpt,
-            "supports_web": True,
-            "temporarily_down": False,
-            "last_answer": "",
-            "last_struct": "",
-            "last_agree": False,
-        },
-        {
             "id": "deepseek",
             "name": "DeepSeek",
             "interface": deepseek,
@@ -366,59 +377,70 @@ def close_loop_ask(
             "last_struct": "",
             "last_agree": False,
         },
-        # {
-        #     "id": "claude",
-        #     "name": "Anthropic Claude",
-        #     "interface": claude,
-        #     "supports_web": True,
-        #     "temporarily_down": False,
-        #     "last_answer": "",
-        #     "last_struct": "",
-        #     "last_agree": False,
-        # },
-        # {
-        #     "id": "qwen",
-        #     "name": "Alibaba Qwen",
-        #     "interface": qwen,
-        #     "supports_web": False,
-        #     "temporarily_down": False,
-        #     "last_answer": "",
-        #     "last_struct": "",
-        #     "last_agree": False,
-        # },
+        {
+            "id": "qwen",
+            "name": "Alibaba Qwen",
+            "interface": qwen,
+            "supports_web": False,
+            "temporarily_down": False,
+            "last_answer": "",
+            "last_struct": "",
+            "last_agree": False,
+        },
+        {
+            "id": "kimi",
+            "name": "Moonshot Kimi",
+            "interface": kimi,
+            "supports_web": True,
+            "temporarily_down": False,
+            "last_answer": "",
+            "last_struct": "",
+            "last_agree": False,
+        },
     ]
 
     loop_idx = 0
 
+    def call_with_retry_wrapper(
+        model: ModelState,
+        prompt_data: List[str],
+        use_web: bool,
+        context: str = "call",
+    ) -> Optional[str]:
+        """
+        Wrapper for call_with_retry that can be used with ThreadPoolExecutor.
+        This is needed because call_with_retry needs access to the model dict.
+        """
+        return call_with_retry(model, prompt_data, use_web, context)
+
     with ThreadPoolExecutor(max_workers=len(models)) as executor:
         # Initial round: each model answers the user prompt (parallel).
-        print("=== Initial Round: All models answer the original prompt ===")
+        print("=== Initial Round: All models are answering the original prompt ===")
         init_futs = {}
 
         for m in models:
             mid = m["id"]
-            if m["supports_web"]:
-                init_futs[mid] = executor.submit(m["interface"].ask, prompt, True)
-            else:
-                init_futs[mid] = executor.submit(m["interface"].ask, prompt)
+            init_futs[mid] = executor.submit(
+                call_with_retry_wrapper, m, prompt, m["supports_web"], "initial call"
+            )
 
         for m in models:
             mid = m["id"]
-            try:
-                raw = init_futs[mid].result()
+            raw = init_futs[mid].result()
+            if raw is None:
+                m["temporarily_down"] = True
+                m["last_answer"] = f"[{m['name']} initial call failed after {max_retries} retries]"
+                log.append(
+                    f"=== Initial {m['name']} Error ===\n"
+                    f"Failed after {max_retries} retry attempts.\n"
+                    "This model failed to return in the initial round; it will be retried in later rounds.\n"
+                    f"(timestamp: {datetime.now().isoformat()})"
+                )
+            else:
                 m["last_answer"] = raw
                 log.append(
                     f"=== Initial {m['name']} Answer ===\n"
                     f"{raw}\n"
-                    f"(timestamp: {datetime.now().isoformat()})"
-                )
-            except Exception as e:
-                m["temporarily_down"] = True
-                m["last_answer"] = f"[{m['name']} initial call failed: {repr(e)}]"
-                log.append(
-                    f"=== Initial {m['name']} Error ===\n"
-                    f"Error: {repr(e)}\n"
-                    "This model failed to return in the initial round; it will be retried in later rounds.\n"
                     f"(timestamp: {datetime.now().isoformat()})"
                 )
 
@@ -442,22 +464,32 @@ def close_loop_ask(
             for m in participants:
                 prompts[m["id"]] = build_debate_prompt(m, participants)
 
-            futs = {}
-            for m in participants:
-                mid = m["id"]
-                if m["supports_web"]:
-                    futs[mid] = executor.submit(m["interface"].ask, [prompts[mid]], True)
-                else:
-                    futs[mid] = executor.submit(m["interface"].ask, [prompts[mid]])
-
             # Assume everyone is eligible next round; mark down only on failures in this round.
             for m in models:
                 m["temporarily_down"] = False
 
+            futs = {}
             for m in participants:
                 mid = m["id"]
-                try:
-                    raw = futs[mid].result()
+                futs[mid] = executor.submit(
+                    call_with_retry_wrapper, m, [prompts[mid]], m["supports_web"], f"loop {loop_idx}"
+                )
+
+            for m in participants:
+                mid = m["id"]
+                raw = futs[mid].result()
+                if raw is None:
+                    m["temporarily_down"] = True
+                    m["last_struct"] = f"[{m['name']} call failed in loop {loop_idx} after {max_retries} retries]"
+                    print(m["last_struct"])
+                    log.append(
+                        f"=== Loop {loop_idx}: {m['name']} Error ===\n"
+                        f"Prompt to {m['name']}:\n{prompts[mid]}\n\n"
+                        f"Failed after {max_retries} retry attempts.\n"
+                        "This model is considered offline for this round, but will be retried next round.\n"
+                        f"(timestamp: {datetime.now().isoformat()})"
+                    )
+                else:
                     m["last_struct"] = raw
                     agree, answer = parse_list_response(raw)
                     m["last_agree"] = bool(agree)
@@ -469,17 +501,6 @@ def close_loop_ask(
                         f"Prompt to {m['name']}:\n{prompts[mid]}\n\n"
                         f"Raw output:\n{raw}\n\n"
                         f"Parsed -> agree: {agree}, answer length: {len(m['last_answer'])}\n"
-                        f"(timestamp: {datetime.now().isoformat()})"
-                    )
-                except Exception as e:
-                    m["temporarily_down"] = True
-                    m["last_struct"] = f"[{m['name']} call failed in loop {loop_idx}: {repr(e)}]"
-                    print(m["last_struct"])
-                    log.append(
-                        f"=== Loop {loop_idx}: {m['name']} Error ===\n"
-                        f"Prompt to {m['name']}:\n{prompts[mid]}\n\n"
-                        f"Error: {repr(e)}\n"
-                        "This model is considered offline for this round, but will be retried next round.\n"
                         f"(timestamp: {datetime.now().isoformat()})"
                     )
 
@@ -499,35 +520,25 @@ def close_loop_ask(
                 break
 
         # Final long-form answers (for any model that returned something at least once)
-        final_futs = {}
+        final_answers_map: Dict[str, str] = {}
         for m in models:
             if not m["last_answer"] and not m["last_struct"]:
                 continue
 
             final_prompt = [build_final_prompt(m)]
-            if m["supports_web"]:
-                final_futs[m["id"]] = executor.submit(m["interface"].ask, final_prompt, True)
+            ans = call_with_retry(m, final_prompt, m["supports_web"], "final answer")
+            if ans is None:
+                final_answers_map[m["name"]] = f"[{m['name']} final answer failed after {max_retries} retries]"
+                log.append(
+                    f"=== Final Long Answer Error from {m['name']} ===\n"
+                    f"Failed after {max_retries} retry attempts.\n"
+                    f"(timestamp: {datetime.now().isoformat()})"
+                )
             else:
-                final_futs[m["id"]] = executor.submit(m["interface"].ask, final_prompt)
-
-        final_answers_map: Dict[str, str] = {}
-        for m in models:
-            mid = m["id"]
-            if mid not in final_futs:
-                continue
-            try:
-                ans = final_futs[mid].result()
                 final_answers_map[m["name"]] = ans
                 log.append(
                     f"=== Final Long Answer from {m['name']} ===\n"
                     f"{ans}\n"
-                    f"(timestamp: {datetime.now().isoformat()})"
-                )
-            except Exception as e:
-                final_answers_map[m["name"]] = f"[{m['name']} final answer failed: {repr(e)}]"
-                log.append(
-                    f"=== Final Long Answer Error from {m['name']} ===\n"
-                    f"Error: {repr(e)}\n"
                     f"(timestamp: {datetime.now().isoformat()})"
                 )
 
@@ -544,9 +555,9 @@ def close_loop_ask(
             return m["last_struct"]
         return f"[{m['name']} produced no usable output]"
 
-    gemini_final = pick_final("gemini")
-    gpt_final = pick_final("chatgpt")
     deepseek_final = pick_final("deepseek")
+    qwen_final = pick_final("qwen")
+    kimi_final = pick_final("kimi")
 
     log.append(
         "=== Final Summary ===\n"
@@ -565,17 +576,17 @@ def close_loop_ask(
     print(f"\n📝 Dialog log exported to {log_filename}")
     print(f"📝 Final answers exported to {final_answers_filename}")
 
-    last_gemini_struct = (get_model(models, "gemini") or {}).get("last_struct", "")
-    last_gpt_struct = (get_model(models, "chatgpt") or {}).get("last_struct", "")
     last_deepseek_struct = (get_model(models, "deepseek") or {}).get("last_struct", "")
+    last_qwen_struct = (get_model(models, "qwen") or {}).get("last_struct", "")
+    last_kimi_struct = (get_model(models, "kimi") or {}).get("last_struct", "")
 
     return (
-        gemini_final,
-        gpt_final,
         deepseek_final,
-        last_gemini_struct,
-        last_gpt_struct,
+        qwen_final,
+        kimi_final,
         last_deepseek_struct,
+        last_qwen_struct,
+        last_kimi_struct,
     )
 
 
@@ -603,6 +614,12 @@ if __name__ == "__main__":
         default=10,
         help="Maximum debate loops after the initial round.",
     )
+    parser.add_argument(
+        "--max_retries",
+        type=int,
+        default=3,
+        help="Maximum number of retry attempts for each API call.",
+    )
     args = parser.parse_args()
 
     prompt = load_prompt(prefix=args.prefix, output_lang=args.lang)
@@ -619,18 +636,19 @@ if __name__ == "__main__":
     os.makedirs(output_dir, exist_ok=True)
 
     (
-        final_gemini,
-        final_gpt,
         final_deepseek,
-        gemini_debug,
-        gpt_debug,
+        final_qwen,
+        final_kimi,
         deepseek_debug,
+        qwen_debug,
+        kimi_debug,
     ) = close_loop_ask(
         prompt,
         max_loops=args.max_loops,
         log_filename=log_filename,
         final_answers_filename=final_answers_filename,
         output_lang=args.lang,
+        max_retries=args.max_retries,
     )
 
     if args.lang == "en":
@@ -638,6 +656,6 @@ if __name__ == "__main__":
     else:
         print("\n=== 最终答案（重新回答原始问题） ===")
 
-    print("Gemini:", final_gemini)
-    print("ChatGPT:", final_gpt)
     print("DeepSeek:", final_deepseek)
+    print("Qwen:", final_qwen)
+    print("Kimi:", final_kimi)

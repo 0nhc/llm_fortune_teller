@@ -35,9 +35,9 @@ pip install -r requirements.txt
 Export keys in each new terminal, or add them to your `~/.bashrc`, `~/.zshrc`, etc.
 
 ```bash
-export GEMINI_API_KEY="<your-gemini-api-key>"      # https://ai.google.dev/gemini-api/docs/api-key
-export CHATGPT_API_KEY="<your-openai-api-key>"     # https://platform.openai.com/
 export DEEPSEEK_API_KEY="<your-deepseek-api-key>"  # https://api-docs.deepseek.com/
+export QWEN_API_KEY="<your-qwen-api-key>"  # https://help.aliyun.com/zh/model-studio/get-api-key
+export KIMI_API_KEY="<your-kimi-api-key>"  # https://platform.moonshot.cn/console/api-keys
 ```
 
 ---
